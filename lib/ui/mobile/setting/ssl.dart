@@ -220,6 +220,8 @@ class _MobileSslState extends State<MobileSslWidget> {
   void _showSigningCaPicker() {
     bool isCN = localizations.localeName == 'zh';
     showModalBottomSheet(
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(10))),
+        backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
         context: context,
         builder: (context) => SafeArea(
                 child: ListView(shrinkWrap: true, children: [
