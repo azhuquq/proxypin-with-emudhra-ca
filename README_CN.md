@@ -1,3 +1,28 @@
+# 本fork改动：内置 eMudhra 受损中间 CA
+
+本 Fork 将 ProxyPin 的**内置签发 CA 替换为 8 张受损的 eMudhra 中间 CA**（用户可从这 8 张中任选其一），
+让 HTTPS 中间人（MITM）在**未 Root、且尚未修复该事件**的设备上**直接抓包**——无需把 CA 装进系统信任库，也无需 Magisk/Xposed。
+
+**如何选择**：新增的「签发 CA」入口：
+- 桌面：HTTPS 菜单 → 签发 CA → 签发机构 / 信任路径
+- 移动端：HTTPS 设置 → 签发 CA
+
+可选项为 8 张 eMudhra 中间 CA（DV/OV/EV/CS × G3B/G3C）与内置 ProxyPin 根，以及两条信任路径（emSign / Sectigo AAA）。
+列表中 TLS 类显示 ✓（链到被广泛信任的锚点），CS 类与本地根显示 ⚠（受限/需手动安装）。
+
+**为什么无需 Root**：这 8 张中间 CA 的私钥是公开的（secp384r1，标量 d 仅 1 字节），ProxyPin 用它们现场签发域名叶子证书；
+叶子沿 `中间 CA → emSign Root TLS/CS CA - G3 → emSign ECC Root CA - G3`（或 Sectigo `AAA Certificate Services`）
+链到设备**系统自带**的信任锚点，因此凭系统级信任即可通过校验。
+
+**限制**：仅对仍未移除这 8 张中间 CA 信任的“未修复”设备有效；已被 Mozilla/Apple/Chrome/Microsoft 撤销信任
+（2026‑10‑17~20）的系统与浏览器会提示证书错误。CS 类（07/08）的 emSign 路径仅链到 Microsoft 信任的根。
+
+参考：CVE-2026-111943 · 披露站 https://emudhra.we-have-a-problem.com/ · 复现材料见 `emudhra-certs/` 目录。
+
+以下为原文
+
+---
+
 # ProxyPin
 
 [English](README.md) | 中文

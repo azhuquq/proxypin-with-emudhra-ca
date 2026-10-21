@@ -60,6 +60,16 @@ flutter:
   assets:
     - assets/certs/ca.crt
     - assets/certs/ca_key.pem
+    - assets/certs/emudhra/
+    - assets/certs/emudhra/roots/
+    - assets/certs/emudhra/01/
+    - assets/certs/emudhra/02/
+    - assets/certs/emudhra/03/
+    - assets/certs/emudhra/04/
+    - assets/certs/emudhra/05/
+    - assets/certs/emudhra/06/
+    - assets/certs/emudhra/07/
+    - assets/certs/emudhra/08/
     - assets/icon.png
     - assets/icon.ico
     - assets/icon_foreground.png

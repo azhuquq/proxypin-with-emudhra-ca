@@ -21,7 +21,9 @@ import 'dart:math';
 import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
 import 'package:pointycastle/export.dart';
+import 'package:proxypin/network/bin/configuration.dart';
 import 'package:proxypin/network/util/cert/pkcs12.dart';
+import 'package:proxypin/network/util/cert/emudhra_cas.dart';
 import 'package:proxypin/network/util/cert/x509.dart';
 import 'package:proxypin/network/util/logger.dart';
 import 'package:proxypin/network/util/random.dart';
@@ -56,8 +58,21 @@ class CertificateManager {
   /// ca证书
   static X509CertificateData? _caCert;
 
-  /// ca私钥
-  static late RSAPrivateKey _caPriKey;
+  /// ca私钥 (proxyPin RSA 模式)
+  static RSAPrivateKey? _caPriKey;
+
+  /// emudhra 模式的 secp384r1 EC 私钥
+  static ECPrivateKey? _caEcPriKey;
+
+  /// 随伪造叶子一起下发的颁发者链 PEM (emudhra 模式); proxyPin 模式为空
+  static String _issuerChainPem = '';
+
+  /// 当前签发模式: 'proxyPin' 使用内置自签 RSA 根, 'emudhra' 使用受损 eMudhra 中间 CA
+  static String _caMode = 'emudhra';
+  static String _emudhraCaId = '01';
+  static EmudhraTrustPath _emudhraTrustPath = EmudhraTrustPath.emSign;
+
+  static bool get useEmudhraCa => _caMode == 'emudhra';
 
   /// ca证书 subject DN 的原始 ASN.1 字节, 用作签发叶子证书的 issuer, 保证与 CA 二进制精确匹配
   static Uint8List? _caSubjectDnBytes;
@@ -71,6 +86,32 @@ class CertificateManager {
   }
 
   static X509CertificateData? get caCert => _caCert;
+
+  /// 当前签发模式: 'proxyPin' | 'emudhra'
+  static String get caMode => _caMode;
+
+  static String get emudhraCaId => _emudhraCaId;
+
+  static EmudhraTrustPath get emudhraTrustPath => _emudhraTrustPath;
+
+  /// 选择签发机构。mode='proxyPin'|'emudhra'; emudhraId 取 '01'..'08'; path 取 'emSign'|'aaa'。
+  /// 变更后清空证书缓存, 下次请求按新配置重新初始化。
+  static void selectSigningCa({String? mode, String? emudhraId, String? path}) {
+    if (mode != null) _caMode = mode;
+    if (emudhraId != null) _emudhraCaId = emudhraId;
+    if (path != null) _emudhraTrustPath = EmudhraTrustPath.parse(path);
+    cleanCache();
+    _state = StartState.uninitialized;
+  }
+
+  /// 把「改用内置/导入的 proxyPin 根」写回配置, 否则重启后配置仍是 emudhra, 会静默切回 eMudhra 模式
+  static Future<void> _persistProxyPinCaMode() async {
+    _caMode = 'proxyPin';
+    var config = await Configuration.instance;
+    if (config.mitmCaMode == 'proxyPin') return;
+    config.mitmCaMode = 'proxyPin';
+    await config.flushConfig();
+  }
 
   /// 清除缓存
   static void cleanCache() {
@@ -127,11 +168,13 @@ class CertificateManager {
 
   /// 生成域名叶子证书的 [SecurityContext] 并写入缓存
   static SecurityContext _createSecurityContext(String host, {X509CertificateData? remoteCert}) {
-    String cer = generate(_caCert!, _serverKeyPair.publicKey as RSAPublicKey, _caPriKey, host, remoteCert: remoteCert);
+    var leafPem = _signLeaf(host, remoteCert: remoteCert);
+    //emudhra 模式需随叶子一起下发颁发者链(中间 CA + 到受信锚点的交叉证书), 让无 root 设备走系统信任
+    var chainPem = _issuerChainPem.isEmpty ? leafPem : "$leafPem\n$_issuerChainPem";
     var rsaPrivateKey = _serverKeyPair.privateKey as RSAPrivateKey;
 
     var securityContext = SecurityContext(withTrustedRoots: true)
-      ..useCertificateChainBytes(cer.codeUnits)
+      ..useCertificateChainBytes(chainPem.codeUnits)
       ..allowLegacyUnsafeRenegotiation = true
       ..usePrivateKeyBytes(CryptoUtils.encodeRSAPrivateKeyToPemPkcs1(rsaPrivateKey).codeUnits);
 
@@ -144,14 +187,11 @@ class CertificateManager {
     if (_state != StartState.initialized) {
       await initCAConfig();
     }
-    return generate(_caCert!, _serverKeyPair.publicKey as RSAPublicKey, _caPriKey, host);
+    return _signLeaf(host);
   }
 
-  /// 生成证书
-  ///
-  /// [remoteCert] 远程服务器真实证书, 若提供则复制其 Subject、SAN、有效期, 以通过客户端严格校验
-  static String generate(X509CertificateData caRoot, RSAPublicKey serverPubKey, RSAPrivateKey caPriKey, String host,
-      {X509CertificateData? remoteCert}) {
+  /// 按当前签发模式 (emudhra ECDSA / proxyPin RSA) 为域名签发叶子证书 PEM
+  static String _signLeaf(String host, {X509CertificateData? remoteCert}) {
     //默认 subject 模板, 以及仅包含域名本身的 SAN
     Map<String, String> x509Subject = {
       'C': 'CN',
@@ -166,6 +206,61 @@ class CertificateManager {
     DateTime? notAfter;
 
     //存在远程真实证书时, 复制其 Subject、SAN、有效期, 以通过客户端严格校验
+    if (remoteCert != null) {
+      x509Subject = _remoteSubject(remoteCert) ?? x509Subject;
+      sans = _remoteSans(remoteCert) ?? sans;
+      notBefore = remoteCert.validity.notBefore;
+      notAfter = remoteCert.validity.notAfter;
+    }
+
+    var serverPubKey = _serverKeyPair.publicKey as RSAPublicKey;
+    var serialNumber = Random().nextInt(1000000).toString();
+
+    //emudhra 模式下私钥缺失通常意味着 CA 资源没打进包里, 直接报错比空断言崩溃更可定位
+    if (useEmudhraCa) {
+      var ecPriKey = _caEcPriKey;
+      if (_caCert == null || ecPriKey == null) {
+        throw StateError('eMudhra 模式未加载 CA (id=$_emudhraCaId path=$_emudhraTrustPath), 请在设置里重新选择签发 CA');
+      }
+      return X509Utils.generateServerCertificate(_caCert!, serverPubKey, ecPriKey, 36,
+          sans: sans,
+          serialNumber: serialNumber,
+          subject: x509Subject,
+          issuerRawBytes: _caSubjectDnBytes,
+          notBefore: notBefore,
+          notAfter: notAfter);
+    }
+
+    var rsaPriKey = _caPriKey;
+    if (_caCert == null || rsaPriKey == null) {
+      throw StateError('ProxyPin 根证书/私钥未加载, 请在设置里重新生成或导入 CA');
+    }
+    return X509Utils.generateSelfSignedCertificate(_caCert!, serverPubKey, rsaPriKey, 36,
+        sans: sans,
+        serialNumber: serialNumber,
+        subject: x509Subject,
+        issuerRawBytes: _caSubjectDnBytes,
+        notBefore: notBefore,
+        notAfter: notAfter);
+  }
+
+  /// 生成证书 (proxyPin RSA 根签发, 兼容旧调用)
+  ///
+  /// [remoteCert] 远程服务器真实证书, 若提供则复制其 Subject、SAN、有效期, 以通过客户端严格校验
+  static String generate(X509CertificateData caRoot, RSAPublicKey serverPubKey, RSAPrivateKey caPriKey, String host,
+      {X509CertificateData? remoteCert}) {
+    Map<String, String> x509Subject = {
+      'C': 'CN',
+      'ST': 'BJ',
+      'L': 'Beijing',
+      'O': 'Proxy',
+      'OU': 'ProxyPin',
+      'CN': host,
+    };
+    List<String> sans = [host];
+    DateTime? notBefore;
+    DateTime? notAfter;
+
     if (remoteCert != null) {
       x509Subject = _remoteSubject(remoteCert) ?? x509Subject;
       sans = _remoteSans(remoteCert) ?? sans;
@@ -251,6 +346,7 @@ class CertificateManager {
     var serverPriKeyPem = CryptoUtils.encodeRSAPrivateKeyToPem(serverPriKey);
     var keyFile = await privateKeyFile();
     await keyFile.writeAsString(serverPriKeyPem);
+    await _persistProxyPinCaMode();
     cleanCache();
     _state = StartState.uninitialized;
   }
@@ -262,6 +358,7 @@ class CertificateManager {
 
     var keyFile = await privateKeyFile();
     await keyFile.delete();
+    await _persistProxyPinCaMode();
     cleanCache();
     _state = StartState.uninitialized;
     initCAConfig();
@@ -280,17 +377,27 @@ class CertificateManager {
     try {
       _serverKeyPair = CryptoUtils.generateRSAKeyPair();
 
-      //从项目目录加入ca根证书
-      var caPemFile = await certificateFile();
-      var caPem = await caPemFile.readAsString();
-      _caCert = X509Utils.x509CertificateFromPem(caPem);
-      //提取 CA subject DN 原始字节, 供签发叶子证书时作为 issuer, 保证与 CA 二进制精确匹配(兼容 iOS 严格校验)
-      _caSubjectDnBytes = X509Utils.subjectDnBytesFromPem(caPem);
-      //根据CA证书subject来动态生成目标服务器证书的issuer和subject
-
-      //从项目目录加入ca私钥
-      var keyFile = await privateKeyFile();
-      _caPriKey = CryptoUtils.rsaPrivateKeyFromPem(await keyFile.readAsString());
+      if (useEmudhraCa) {
+        //emudhra 模式: 载入受损中间 CA + secp384r1 私钥 + 到系统信任锚点的颁发者链
+        var ca = EmudhraCas.byId(_emudhraCaId) ?? EmudhraCas.defaultCa;
+        var material = await EmudhraCaLoader.load(ca, _emudhraTrustPath);
+        _caCert = material.ca;
+        _caSubjectDnBytes = material.subjectDnBytes;
+        _caEcPriKey = material.key;
+        _caPriKey = null;
+        _issuerChainPem = material.chainPem;
+      } else {
+        //proxyPin 模式: 内置/用户自签 RSA 根, 仅下发叶子 (无 root 设备需手动安装该根)
+        var caPemFile = await certificateFile();
+        var caPem = await caPemFile.readAsString();
+        _caCert = X509Utils.x509CertificateFromPem(caPem);
+        //提取 CA subject DN 原始字节, 供签发叶子证书时作为 issuer, 保证与 CA 二进制精确匹配(兼容 iOS 严格校验)
+        _caSubjectDnBytes = X509Utils.subjectDnBytesFromPem(caPem);
+        var keyFile = await privateKeyFile();
+        _caPriKey = CryptoUtils.rsaPrivateKeyFromPem(await keyFile.readAsString());
+        _caEcPriKey = null;
+        _issuerChainPem = '';
+      }
 
       _state = StartState.initialized;
       _initializationCompleter.complete();
@@ -355,6 +462,7 @@ class CertificateManager {
     await keyFile.writeAsString(decodePkcs12[0]);
     await caFile.writeAsString(decodePkcs12[1]);
 
+    await _persistProxyPinCaMode();
     cleanCache();
     _state = StartState.uninitialized;
     initCAConfig();

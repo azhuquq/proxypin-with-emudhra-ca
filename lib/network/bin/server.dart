@@ -111,6 +111,10 @@ class ProxyServer {
       }
 
       //初始化证书
+      CertificateManager.selectSigningCa(
+          mode: configuration.mitmCaMode,
+          emudhraId: configuration.mitmEmudhraCaId,
+          path: configuration.mitmEmudhraPath);
       CertificateManager.initCAConfig();
       return server;
     });

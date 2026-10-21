@@ -11,6 +11,8 @@ import 'package:pointycastle/asn1/primitives/asn1_object_identifier.dart';
 import 'package:pointycastle/asn1/primitives/asn1_octet_string.dart';
 import 'package:pointycastle/asn1/primitives/asn1_sequence.dart';
 import 'package:pointycastle/asymmetric/api.dart';
+import 'package:pointycastle/ecc/api.dart';
+import 'package:pointycastle/ecc/curves/secp384r1.dart';
 import 'package:pointycastle/key_generators/api.dart';
 import 'package:pointycastle/key_generators/rsa_key_generator.dart';
 import 'package:pointycastle/paddings/pkcs7.dart';
@@ -234,6 +236,42 @@ class CryptoUtils {
     var rsaPrivateKey = RSAPrivateKey(modulus.integer!, privateExponent.integer!, p.integer, q.integer);
 
     return rsaPrivateKey;
+  }
+
+  /// secp384r1 曲线参数 (P-384), 供 ECDSA 签发与私钥解析使用
+  static ECDomainParameters get secp384r1 => ECCurve_secp384r1();
+
+  /// 从 PEM 解析 EC 私钥, 自动识别 SEC1 (`BEGIN EC PRIVATE KEY`) 或 PKCS#8 (`BEGIN PRIVATE KEY`)
+  static ECPrivateKey ecPrivateKeyFromPem(String pem) {
+    if (pem.startsWith(BEGIN_EC_PRIVATE_KEY)) {
+      return ecPrivateKeyFromSec1DER(getBytesFromPEMString(pem));
+    } else if (pem.startsWith(BEGIN_PRIVATE_KEY)) {
+      return ecPrivateKeyFromPkcs8DER(getBytesFromPEMString(pem));
+    }
+    throw ArgumentError('Unsupported EC private key PEM');
+  }
+
+  /// SEC1 ECPrivateKey DER -> ECPrivateKey(secp384r1)
+  static ECPrivateKey ecPrivateKeyFromSec1DER(Uint8List bytes) {
+    var seq = ASN1Parser(bytes).nextObject() as ASN1Sequence;
+    var privateKey = seq.elements![1] as ASN1OctetString;
+    return ECPrivateKey(bytesToUnsignedBigInt(privateKey.valueBytes!), secp384r1);
+  }
+
+  /// PKCS#8 PrivateKeyInfo (EC) DER -> ECPrivateKey(secp384r1): 外层取出内嵌 SEC1 再解析
+  static ECPrivateKey ecPrivateKeyFromPkcs8DER(Uint8List bytes) {
+    var topLevelSeq = ASN1Parser(bytes).nextObject() as ASN1Sequence;
+    var privateKey = topLevelSeq.elements![2];
+    return ecPrivateKeyFromSec1DER(privateKey.valueBytes!);
+  }
+
+  /// 大端无符号字节 -> BigInt
+  static BigInt bytesToUnsignedBigInt(Uint8List bytes) {
+    var result = BigInt.zero;
+    for (var b in bytes) {
+      result = (result << 8) | BigInt.from(b);
+    }
+    return result;
   }
 
   ///

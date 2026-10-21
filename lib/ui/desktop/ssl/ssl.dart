@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:proxypin/l10n/app_localizations.dart';
 import 'package:flutter_toastr/flutter_toastr.dart';
 import 'package:proxypin/network/bin/server.dart';
+import 'package:proxypin/network/util/cert/emudhra_cas.dart';
 import 'package:proxypin/network/util/crts.dart';
 import 'package:proxypin/network/util/logger.dart';
 import 'package:proxypin/ui/component/utils.dart';
@@ -52,6 +53,8 @@ class _SslState extends State<SslWidget> {
           exportMenu(),
           const Divider(thickness: 0.3, height: 3),
           importMenu(),
+          const Divider(thickness: 0.3, height: 3),
+          _signingCaMenu(),
           const Divider(thickness: 0.3, height: 3),
           item(localizations.generateCA, onPressed: () async {
             showConfirmDialog(context, title: localizations.generateCA, content: localizations.generateCADescribe,
@@ -201,6 +204,79 @@ class _SslState extends State<SslWidget> {
         child: Padding(
             padding: const EdgeInsets.only(left: 10, right: 5),
             child: Text(text, style: const TextStyle(fontSize: 14))));
+  }
+
+  /// 签发机构选择菜单: ProxyPin 内置根 / 8 张受损 eMudhra 中间 CA + 信任路径
+  Widget _signingCaMenu() {
+    bool isCN = localizations.localeName == 'zh';
+    var emudhra = CertificateManager.caMode == 'emudhra';
+
+    var caItems = <Widget>[
+      _caItem(isCN ? "ProxyPin 内置根" : "ProxyPin root", !emudhra,
+          systemTrusted: false, onTap: () => _applyCa(mode: 'proxyPin')),
+      const Divider(thickness: 0.3, height: 3),
+    ];
+    for (var ca in EmudhraCas.list) {
+      caItems.add(_caItem('${ca.name} ${isCN ? '[内置]' : '[built-in]'}',
+          emudhra && CertificateManager.emudhraCaId == ca.id,
+          //TLS 链到广泛信任的 emSign 锚点 -> ✓; CS 仅链到 Microsoft 根 -> ⚠
+          systemTrusted: ca.caType == 'TLS',
+          onTap: () => _applyCa(mode: 'emudhra', id: ca.id)));
+    }
+
+    var path = CertificateManager.emudhraTrustPath;
+    return SubmenuButton(
+        menuChildren: [
+          SubmenuButton(menuChildren: caItems, child: Text(isCN ? '签发机构 (CA)' : 'Signing CA', style: const TextStyle(fontSize: 14))),
+          SubmenuButton(
+              menuChildren: [
+                _caItem('emSign Root (→ emSign ECC Root CA - G3)', emudhra && path == EmudhraTrustPath.emSign,
+                    onTap: () => _applyCa(mode: 'emudhra', path: 'emSign')),
+                _caItem('Sectigo AAA', emudhra && path == EmudhraTrustPath.aaa,
+                    onTap: () => _applyCa(mode: 'emudhra', path: 'aaa')),
+              ],
+              child: Text(isCN ? '信任路径' : 'Trust path', style: const TextStyle(fontSize: 14))),
+        ],
+        child: Padding(
+            padding: const EdgeInsets.only(left: 10, right: 5),
+            child: Text(isCN ? '签发 CA' : 'Signing CA', style: const TextStyle(fontSize: 14))));
+  }
+
+  /// [systemTrusted] null=无状态图标; true=✓; false=⚠(空心)
+  Widget _caItem(String text, bool selected, {bool? systemTrusted, VoidCallback? onTap}) {
+    Widget? status;
+    if (systemTrusted != null) {
+      status = Icon(systemTrusted ? Icons.check : Icons.warning_outlined,
+          size: 18, color: systemTrusted ? Colors.green : Colors.deepOrange);
+    }
+    return MenuItemButton(
+        onPressed: onTap,
+        leadingIcon: Icon(
+            selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+            size: 18,
+            color: selected ? Theme.of(context).colorScheme.primary : null),
+        child: Padding(
+            padding: const EdgeInsets.only(left: 5, right: 5),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (status != null) ...[status, const SizedBox(width: 6)],
+              Text(text, style: const TextStyle(fontSize: 14)),
+            ])));
+  }
+
+  /// 应用签发机构选择到配置与运行时, 并重启证书初始化
+  Future<void> _applyCa({String? mode, String? id, String? path}) async {
+    var config = widget.proxyServer.configuration;
+    if (mode != null) config.mitmCaMode = mode;
+    if (id != null) config.mitmEmudhraCaId = id;
+    if (path != null) config.mitmEmudhraPath = path;
+
+    CertificateManager.selectSigningCa(mode: mode, emudhraId: id, path: path);
+    await CertificateManager.initCAConfig();
+    await config.flushConfig();
+
+    if (!mounted) return;
+    setState(() {});
+    FlutterToastr.show(localizations.success, context);
   }
 
   void iosCer(String host) {

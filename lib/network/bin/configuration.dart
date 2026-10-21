@@ -63,6 +63,15 @@ class Configuration {
   //默认是否启动
   bool startup = false;
 
+  //MITM 签发机构模式: 'emudhra' (受损 eMudhra 中间 CA, 无 root 设备可直接生效) 或 'proxyPin' (内置自签 RSA 根)
+  String mitmCaMode = 'emudhra';
+
+  //emudhra 模式选中的中间 CA id ('01'..'08')
+  String mitmEmudhraCaId = '01';
+
+  //emudhra 模式信任路径: 'emSign' | 'aaa'
+  String mitmEmudhraPath = 'emSign';
+
   Configuration._();
 
   /// 单例
@@ -98,6 +107,9 @@ class Configuration {
     appWhitelist = List<String>.from(config['appWhitelist'] ?? []);
     appWhitelistEnabled = config['appWhitelistEnabled'] ?? true;
     appBlacklist = config['appBlacklist'] == null ? null : List<String>.from(config['appBlacklist']);
+    mitmCaMode = config['mitmCaMode'] ?? mitmCaMode;
+    mitmEmudhraCaId = config['mitmEmudhraCaId'] ?? mitmEmudhraCaId;
+    mitmEmudhraPath = config['mitmEmudhraPath'] ?? mitmEmudhraPath;
     HostFilter.whitelist.load(config['whitelist']);
     HostFilter.blacklist.load(config['blacklist']);
   }
@@ -150,6 +162,9 @@ class Configuration {
       'appBlacklist': appBlacklist,
       'historyCacheTime': historyCacheTime,
       'enabledHttp2': enabledHttp2,
+      'mitmCaMode': mitmCaMode,
+      'mitmEmudhraCaId': mitmEmudhraCaId,
+      'mitmEmudhraPath': mitmEmudhraPath,
       'whitelist': HostFilter.whitelist.toJson(),
       'blacklist': HostFilter.blacklist.toJson(),
     };

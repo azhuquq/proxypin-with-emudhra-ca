@@ -158,6 +158,88 @@ class X509Utils {
     DateTime? notBefore,
     DateTime? notAfter,
   }) {
+    return _buildCertificate(
+      caRoot,
+      _makePublicKeyBlock(publicKey),
+      privateKey,
+      days,
+      sans: sans,
+      serialNumber: serialNumber,
+      issuer: issuer,
+      subject: subject,
+      issuerRawBytes: issuerRawBytes,
+      keyUsage: keyUsage,
+      extKeyUsage: extKeyUsage,
+      basicConstraints: basicConstraints,
+      notBefore: notBefore,
+      notAfter: notAfter,
+    );
+  }
+
+  ///
+  /// 使用 CA 私钥 (RSA [RSAPrivateKey] 或 EC [ECPrivateKey]) 为叶子公钥 [publicKey] 签发服务器证书。
+  /// CA 私钥为 EC 时使用 ecdsa-with-SHA384; 叶子公钥保持 RSA。
+  ///
+  static String generateServerCertificate(
+    X509CertificateData caRoot,
+    RSAPublicKey publicKey,
+    Object caPrivateKey,
+    int days, {
+    List<String>? sans,
+    String serialNumber = '1',
+    Map<String, String>? issuer,
+    Map<String, String>? subject,
+    Uint8List? issuerRawBytes,
+    ExtensionKeyUsage? keyUsage,
+    List<ExtendedKeyUsage>? extKeyUsage,
+    BasicConstraints? basicConstraints,
+    DateTime? notBefore,
+    DateTime? notAfter,
+  }) {
+    return _buildCertificate(
+      caRoot,
+      _makePublicKeyBlock(publicKey),
+      caPrivateKey,
+      days,
+      sans: sans,
+      serialNumber: serialNumber,
+      issuer: issuer,
+      subject: subject,
+      issuerRawBytes: issuerRawBytes,
+      keyUsage: keyUsage,
+      extKeyUsage: extKeyUsage,
+      basicConstraints: basicConstraints,
+      notBefore: notBefore,
+      notAfter: notAfter,
+    );
+  }
+
+  static String _buildCertificate(
+    X509CertificateData caRoot,
+    ASN1Sequence publicKeyBlock,
+    Object caPrivateKey,
+    int days, {
+    List<String>? sans,
+    String serialNumber = '1',
+    Map<String, String>? issuer,
+    Map<String, String>? subject,
+    Uint8List? issuerRawBytes,
+    ExtensionKeyUsage? keyUsage,
+    List<ExtendedKeyUsage>? extKeyUsage,
+    BasicConstraints? basicConstraints,
+    DateTime? notBefore,
+    DateTime? notAfter,
+  }) {
+    // EC 与 RSA 的签名算法标识符不同: ECDSA 的参数为缺省(不写 NULL), RSA 写 NULL
+    final isEc = caPrivateKey is ECPrivateKey;
+    var blockProtocol = ASN1Sequence();
+    if (isEc) {
+      blockProtocol.add(ASN1ObjectIdentifier.fromIdentifierString('1.2.840.10045.4.3.3')); // ecdsa-with-SHA384
+    } else {
+      blockProtocol.add(ASN1ObjectIdentifier.fromIdentifierString(caRoot.signatureAlgorithm));
+      blockProtocol.add(ASN1Null());
+    }
+
     var data = ASN1Sequence();
 
     // Add version
@@ -169,9 +251,6 @@ class X509Utils {
     data.add(ASN1Integer(BigInt.parse(serialNumber)));
 
     // Add protocol
-    var blockProtocol = ASN1Sequence();
-    blockProtocol.add(ASN1ObjectIdentifier.fromIdentifierString(caRoot.signatureAlgorithm));
-    blockProtocol.add(ASN1Null());
     data.add(blockProtocol);
 
     issuer ??= Map.from(caRoot.subject);
@@ -209,7 +288,7 @@ class X509Utils {
     data.add(subjectSeq);
 
     // Add Public Key
-    data.add(_makePublicKeyBlock(publicKey));
+    data.add(publicKeyBlock);
 
     // Add Extensions
 
@@ -274,7 +353,9 @@ class X509Utils {
     var outer = ASN1Sequence();
     outer.add(data);
     outer.add(blockProtocol);
-    var encode = _rsaSign(data.encode(), privateKey, _getDigestFromOi(caRoot.signatureAlgorithm));
+    var encode = caPrivateKey is ECPrivateKey
+        ? _ecSign(data.encode(), caPrivateKey)
+        : _rsaSign(data.encode(), caPrivateKey as RSAPrivateKey, _getDigestFromOi(caRoot.signatureAlgorithm));
     outer.add(ASN1BitString(stringValues: encode));
 
     var chunks = Strings.chunk(base64Encode(outer.encode()), 64);
@@ -862,6 +943,19 @@ class X509Utils {
     var signature = signer.generateSignature(inBytes) as RSASignature;
 
     return signature.bytes;
+  }
+
+  /// ECDSA 签名 (SHA-384, secp384r1), 返回 DER 编码的 SEQUENCE{ r, s }
+  static Uint8List _ecSign(Uint8List inBytes, ECPrivateKey privateKey) {
+    var signer = Signer('SHA-384/ECDSA');
+    signer.init(true, ParametersWithRandom(PrivateKeyParameter<ECPrivateKey>(privateKey), CryptoUtils.getSecureRandom()));
+
+    var signature = signer.generateSignature(inBytes) as ECSignature;
+
+    var seq = ASN1Sequence();
+    seq.add(ASN1Integer(signature.r));
+    seq.add(ASN1Integer(signature.s));
+    return seq.encode();
   }
 
   ///

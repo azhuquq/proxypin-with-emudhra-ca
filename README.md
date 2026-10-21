@@ -1,3 +1,32 @@
+# Changes in this fork: built-in eMudhra compromised intermediate CAs
+
+This fork replaces ProxyPin's **built-in signing CA with the 8 compromised eMudhra intermediate CAs** (you can pick
+any one of the 8), so HTTPS man-in-the-middle (MITM) capture works **out of the box on a device that is not rooted and
+has not yet patched this issue** — no need to install the CA into the system trust store, and no Magisk/Xposed.
+
+**How to choose** — via the new “Signing CA” entry:
+- Desktop: HTTPS menu → Signing CA → Signing CA / Trust path
+- Mobile: HTTPS settings → Signing CA
+
+The options are the 8 eMudhra intermediates (DV/OV/EV/CS × G3B/G3C) plus the built-in ProxyPin root, and two trust
+paths (emSign / Sectigo AAA). In the list, TLS entries show ✓ (chain to a widely trusted anchor); CS entries and the
+local root show ⚠ (limited / requires manual install).
+
+**Why no root is needed**: the private keys of these 8 intermediates are public (secp384r1, scalar `d` is a single byte).
+ProxyPin forges each host's leaf certificate with them, and the leaf chains via
+`intermediate → emSign Root TLS/CS CA - G3 → emSign ECC Root CA - G3` (or Sectigo `AAA Certificate Services`)
+to a trust anchor that is **already shipped in the device's system store**, so system-level trust is enough to validate.
+
+**Limitation**: only works on “unpatched” devices that still trust these 8 intermediates; systems/browsers that already
+distrust them (Mozilla/Apple/Chrome/Microsoft, 2026‑10‑17~20) will show a certificate error. The emSign path for the
+CS entries (07/08) only chains to a Microsoft-trusted root.
+
+References: CVE-2026-111943 · disclosure https://emudhra.we-have-a-problem.com/ · reproducible material in the `emudhra-certs/` directory.
+
+Original text below
+
+---
+
 # ProxyPin
 
 English | [中文](README_CN.md)

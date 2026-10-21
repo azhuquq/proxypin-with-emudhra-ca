@@ -24,6 +24,7 @@ import 'package:proxypin/l10n/app_localizations.dart';
 import 'package:proxypin/native/native_method.dart';
 import 'package:proxypin/network/bin/server.dart';
 import 'package:proxypin/network/util/cert/cert_data.dart';
+import 'package:proxypin/network/util/cert/emudhra_cas.dart';
 import 'package:proxypin/network/util/crts.dart';
 import 'package:proxypin/network/util/logger.dart';
 import 'package:proxypin/storage/local_storage.dart';
@@ -135,6 +136,15 @@ class _MobileSslState extends State<MobileSslWidget> {
                 }),
           ]),
           const SizedBox(height: 12),
+          // Signing CA selection (ProxyPin root or the 8 compromised eMudhra intermediates)
+          section([
+            ListTile(
+                title: Text(AppLocalizations.of(context)!.localeName == 'zh' ? '签发 CA' : 'Signing CA'),
+                subtitle: Text(_currentSigningCaLabel()),
+                trailing: const Icon(Icons.keyboard_arrow_right),
+                onTap: _showSigningCaPicker),
+          ]),
+          const SizedBox(height: 12),
           // Export options
           section([
             ListTile(
@@ -182,6 +192,81 @@ class _MobileSslState extends State<MobileSslWidget> {
                 }),
           ]),
         ]));
+  }
+
+  String _currentSigningCaLabel() {
+    if (CertificateManager.caMode == 'emudhra') {
+      var ca = EmudhraCas.byId(CertificateManager.emudhraCaId) ?? EmudhraCas.defaultCa;
+      var path = CertificateManager.emudhraTrustPath == EmudhraTrustPath.aaa ? 'Sectigo AAA' : 'emSign';
+      return '${ca.name}  ·  $path';
+    }
+    return localizations.localeName == 'zh' ? 'ProxyPin 内置根' : 'ProxyPin root';
+  }
+
+  /// 应用签发机构选择, 重启证书初始化并持久化
+  Future<void> _applyCa({String? mode, String? id, String? path}) async {
+    var config = widget.proxyServer.configuration;
+    if (mode != null) config.mitmCaMode = mode;
+    if (id != null) config.mitmEmudhraCaId = id;
+    if (path != null) config.mitmEmudhraPath = path;
+
+    CertificateManager.selectSigningCa(mode: mode, emudhraId: id, path: path);
+    await CertificateManager.initCAConfig();
+    await config.flushConfig();
+
+    if (mounted) setState(() {});
+  }
+
+  void _showSigningCaPicker() {
+    bool isCN = localizations.localeName == 'zh';
+    showModalBottomSheet(
+        context: context,
+        builder: (context) => SafeArea(
+                child: ListView(shrinkWrap: true, children: [
+              Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+                  child: Text(isCN ? '选择签名 CA' : 'Select signing CA',
+                      style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600))),
+              _caTile(isCN ? 'ProxyPin 内置根' : 'ProxyPin root', CertificateManager.caMode == 'proxyPin',
+                  systemTrusted: false, onTap: () => _choose(mode: 'proxyPin')),
+              const Divider(height: 1),
+              for (var ca in EmudhraCas.list)
+                _caTile('${ca.name} ${isCN ? '[内置]' : '[built-in]'}',
+                    CertificateManager.caMode == 'emudhra' && CertificateManager.emudhraCaId == ca.id,
+                    //TLS 链到被广泛信任的 emSign 锚点 -> ✓; CS 仅链到 Microsoft 根 -> ⚠
+                    systemTrusted: ca.caType == 'TLS',
+                    onTap: () => _choose(mode: 'emudhra', id: ca.id)),
+              const Divider(height: 1),
+              Padding(padding: const EdgeInsets.all(12), child: Text(isCN ? '信任路径' : 'Trust path')),
+              _caTile('emSign Root (→ emSign ECC Root CA - G3)',
+                  CertificateManager.emudhraTrustPath == EmudhraTrustPath.emSign,
+                  onTap: () => _choose(mode: 'emudhra', path: 'emSign')),
+              _caTile('Sectigo AAA', CertificateManager.emudhraTrustPath == EmudhraTrustPath.aaa,
+                  onTap: () => _choose(mode: 'emudhra', path: 'aaa')),
+              const SizedBox(height: 8),
+            ])));
+  }
+
+  void _choose({String? mode, String? id, String? path}) {
+    Navigator.pop(context);
+    _applyCa(mode: mode, id: id, path: path);
+  }
+
+  /// [systemTrusted] null=不显示状态图标; true=✓(可直接走系统信任); false=⚠(受限/需手动安装)
+  Widget _caTile(String title, bool selected, {bool? systemTrusted, VoidCallback? onTap}) {
+    Widget status = const SizedBox.shrink();
+    if (systemTrusted != null) {
+      status = Icon(systemTrusted ? Icons.check : Icons.warning_outlined,
+          size: 20, color: systemTrusted ? Colors.green : Colors.deepOrange);
+    }
+    return ListTile(
+        leading: Icon(selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+            size: 22, color: selected ? Theme.of(context).colorScheme.primary : Colors.grey),
+        title: Text.rich(TextSpan(children: [
+          WidgetSpan(alignment: PlaceholderAlignment.middle, child: Padding(padding: const EdgeInsets.only(right: 6), child: status)),
+          TextSpan(text: title),
+        ])),
+        onTap: onTap);
   }
 
   void importPk12() async {
