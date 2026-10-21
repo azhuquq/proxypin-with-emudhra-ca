@@ -17,7 +17,7 @@
 **限制**：仅对仍未移除这 8 张中间 CA 信任的“未修复”设备有效；已被 Mozilla/Apple/Chrome/Microsoft 撤销信任
 （2026‑10‑17~20）的系统与浏览器会提示证书错误。CS 类（07/08）的 emSign 路径仅链到 Microsoft 信任的根。
 
-参考：CVE-2026-111943 · 披露站 https://emudhra.we-have-a-problem.com/ · 复现材料见 `emudhra-certs/` 目录。
+参考：CVE-2026-111943 · 披露站 https://emudhra.we-have-a-problem.com/
 
 以下为原文
 

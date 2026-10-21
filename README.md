@@ -21,7 +21,7 @@ to a trust anchor that is **already shipped in the device's system store**, so s
 distrust them (Mozilla/Apple/Chrome/Microsoft, 2026‑10‑17~20) will show a certificate error. The emSign path for the
 CS entries (07/08) only chains to a Microsoft-trusted root.
 
-References: CVE-2026-111943 · disclosure https://emudhra.we-have-a-problem.com/ · reproducible material in the `emudhra-certs/` directory.
+References: CVE-2026-111943 · disclosure https://emudhra.we-have-a-problem.com/
 
 Original text below
 
