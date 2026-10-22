@@ -11,17 +11,26 @@ if [ ! -d bundle ]; then
   exit 1
 fi
 
-rm -rf package-fork
 VERSION=1.3.3-1
 DEB=proxypin-emudhra_${VERSION}_amd64.deb
 rm -f "${DEB}"
+
+rm -rf package-fork
+mkdir -p package-fork/opt package-fork/usr/share/applications
+cp -r bundle package-fork/opt/proxypin-emudhra
+cp ../../../../linux/proxypin-emudhra.desktop package-fork/usr/share/applications/
+
+# du before DEBIAN exists so Installed-Size reflects payload only
+INSTALLED_SIZE=$(du -sk package-fork | awk '{print $1}')
+
 mkdir -p package-fork/DEBIAN
 cat > package-fork/DEBIAN/control <<EOF
 Package: proxypin-emudhra
 Version: ${VERSION}
+Installed-Size: ${INSTALLED_SIZE}
 Priority: optional
 Architecture: amd64
-Depends: ca-certificates
+Depends: ca-certificates, libc6, libgcc-s1, libgtk-3-0, libayatana-appindicator3-1
 Section: utils
 Maintainer: wanghongenpin@gmail.com
 Homepage: https://github.com/wanghongenpin/proxypin
@@ -31,11 +40,8 @@ Description: http/https Capture packets (eMudhra CA fork)
  unpatched client devices.
 EOF
 
-mkdir -p package-fork/opt
-cp -r bundle package-fork/opt/proxypin-emudhra
-
-mkdir -p package-fork/usr/share/applications
-cp ../../../../linux/proxypin-emudhra.desktop package-fork/usr/share/applications/
+# dpkg-deb also generates these when missing; do it here for the fallback path
+( cd package-fork && find opt usr -type f -exec md5sum {} + > DEBIAN/md5sums )
 
 # Prefer dpkg tooling when present (Debian-family); otherwise assemble the
 # .deb with ar/tar (a v2.0 deb is just debian-binary + control.tar + data.tar),

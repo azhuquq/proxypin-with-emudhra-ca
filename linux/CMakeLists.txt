@@ -128,6 +128,17 @@ foreach(bundled_library ${PLUGIN_BUNDLED_LIBRARIES})
     COMPONENT Runtime)
 endforeach(bundled_library)
 
+# The zstandard_linux plugin declares no bundled_libraries, so its runtime
+# library (SONAME libzstandard_linux.so, DT_NEEDED of its plugin .so) is left
+# out of the bundle; the app then only starts on machines where the plugin's
+# build-tree RUNPATH still exists. Install it into the bundle lib dir so the
+# executable's $ORIGIN/lib runpath resolves it everywhere.
+if(TARGET zstandard_linux)
+  install(TARGETS zstandard_linux LIBRARY
+    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+    COMPONENT Runtime)
+endif()
+
 # Fully re-copy the assets directory on each build to avoid having stale files
 # from a previous install.
 set(FLUTTER_ASSET_DIR_NAME "flutter_assets")

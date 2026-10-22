@@ -5,7 +5,7 @@
 # proxypin-emudhra deb release, so it coexists with upstream ProxyPin.
 pkgname=proxypin-emudhra-git
 _installdir=proxypin-emudhra   # deb-released identity kept for paths/icons/binary symlink
-pkgver=1.3.3.emudhra.c1.g02efb25
+pkgver=1.3.3.emudhra.c2.g151fae8
 pkgrel=1
 pkgdesc='HTTP(S) capture proxy forging certificates with the compromised eMudhra intermediate CAs (ProxyPin fork)'
 arch=('x86_64')
