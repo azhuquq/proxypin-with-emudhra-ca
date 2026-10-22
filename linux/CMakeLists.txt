@@ -137,6 +137,12 @@ if(TARGET zstandard_linux)
   install(TARGETS zstandard_linux LIBRARY
     DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
+  # Make the executable itself DT_NEEDED the core library too: the plugin .so
+  # carries a build-tree RUNPATH and its NEEDED cannot be satisfied on other
+  # machines (a DT_RUNPATH object's deps do not inherit the executable's
+  # $ORIGIN/lib). The executable loads it early, so the plugin finds the
+  # already-loaded library by SONAME.
+  target_link_libraries(${BINARY_NAME} PRIVATE zstandard_linux)
 endif()
 
 # Fully re-copy the assets directory on each build to avoid having stale files
