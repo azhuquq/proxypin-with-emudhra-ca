@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=ProxyPin (eMudhra)
+GenericName=HTTP(S) Proxy
+Comment=ProxyPin fork signing certificates with the eMudhra compromised intermediate CAs
+Exec=/opt/proxypin-emudhra/ProxyPin
+Icon=/opt/proxypin-emudhra/data/flutter_assets/assets/icon.png
+Terminal=false
+Type=Application
+Categories=Development;
+StartupWMClass=com.network.proxy.emudhra

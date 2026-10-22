@@ -19,6 +19,15 @@
 
 参考：CVE-2026-111943 · 披露站 https://emudhra.we-have-a-problem.com/
 
+## Linux 打包
+
+- **Debian/Ubuntu**：预构建的 `.deb` 发布在本 fork 的 [Releases](https://github.com/azhuquq/proxypin-with-emudhra-ca/releases)（`sudo dpkg -i` 安装）。包安装到 `/opt/proxypin-emudhra`，并使用独立的
+  application id（`com.network.proxy.emudhra`），可与原版 ProxyPin 的 deb **共存安装**。自行打包：先
+  `flutter build linux --release`，再运行 `linux/build_fork_deb.sh`（无 dpkg 的环境会自动改用 `ar`/`tar` 组装）。
+- **Arch Linux**（未发布 AUR）：用 `packaging/arch/` 下的 `PKGBUILD`，`makepkg -si` 构建安装；`proxypin-emudhra-git`
+  包跟踪本 fork 的 `main` 分支（版本号由 `git describe` 推导），共存布局与 deb 相同。构建依赖 `flutter` 与 `rustup`——
+  cargokit 会在构建时下载 stable Rust toolchain，请保持联网。
+
 以下为原文
 
 ---

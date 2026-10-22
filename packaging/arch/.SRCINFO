@@ -1,0 +1,25 @@
+pkgbase = proxypin-emudhra-git
+	pkgdesc = HTTP(S) capture proxy forging certificates with the compromised eMudhra intermediate CAs (ProxyPin fork)
+	pkgver = 1.3.3
+	pkgrel = 1
+	url = https://github.com/azhuquq/proxypin-with-emudhra-ca
+	arch = x86_64
+	license = Apache-2.0
+	makedepends = flutter
+	makedepends = git
+	makedepends = cmake
+	makedepends = ninja
+	makedepends = clang
+	makedepends = pkgconf
+	makedepends = rustup
+	depends = glibc
+	depends = gcc-libs
+	depends = gtk3
+	depends = libayatana-appindicator
+	depends = ca-certificates
+	provides = proxypin-emudhra
+	conflicts = proxypin-emudhra
+	source = proxypin-emudhra-git::git+https://github.com/azhuquq/proxypin-with-emudhra-ca.git#branch=main
+	sha256sums = SKIP
+
+pkgname = proxypin-emudhra-git

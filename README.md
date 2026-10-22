@@ -23,6 +23,18 @@ CS entries (07/08) only chains to a Microsoft-trusted root.
 
 References: CVE-2026-111943 · disclosure https://emudhra.we-have-a-problem.com/
 
+## Linux packages
+
+- **Debian/Ubuntu**: prebuilt `.deb` files are published on this fork's
+  [Releases](https://github.com/azhuquq/proxypin-with-emudhra-ca/releases) (install with `sudo dpkg -i`). The package installs to `/opt/proxypin-emudhra` and uses its own application id
+  (`com.network.proxy.emudhra`), so it **can be installed side by side** with the upstream ProxyPin deb. To build it
+  from source: `flutter build linux --release`, then run `linux/build_fork_deb.sh` (assembles the .deb with `ar`/`tar`
+  when no dpkg is available).
+- **Arch Linux** (not published on AUR): build the `PKGBUILD` in `packaging/arch/` with `makepkg -si`; the
+  `proxypin-emudhra-git` package tracks this fork's `main` branch (version derived from `git describe`) and installs
+  with the same coexistence layout as the deb. Building requires `flutter` and `rustup` — cargokit fetches a stable
+  Rust toolchain during the build, so keep network access.
+
 Original text below
 
 ---

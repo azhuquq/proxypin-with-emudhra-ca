@@ -1,0 +1,66 @@
+# Maintainer: azhuquq <https://github.com/azhuquq>
+# Rolling (-git) build of the ProxyPin fork with eMudhra compromised
+# intermediate CAs, tracked on this fork's main branch (built with makepkg,
+# not published on AUR). Same install layout and desktop identity as the
+# proxypin-emudhra deb release, so it coexists with upstream ProxyPin.
+pkgname=proxypin-emudhra-git
+_installdir=proxypin-emudhra   # deb-released identity kept for paths/icons/binary symlink
+pkgver=1.3.3
+pkgrel=1
+pkgdesc='HTTP(S) capture proxy forging certificates with the compromised eMudhra intermediate CAs (ProxyPin fork)'
+arch=('x86_64')
+url='https://github.com/azhuquq/proxypin-with-emudhra-ca'
+license=('Apache-2.0')
+provides=('proxypin-emudhra')
+conflicts=('proxypin-emudhra')
+depends=('glibc' 'gcc-libs' 'gtk3' 'libayatana-appindicator' 'ca-certificates')
+makedepends=('flutter' 'git' 'cmake' 'ninja' 'clang' 'pkgconf' 'rustup')
+source=("${pkgname}::git+${url}.git#branch=main")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "${pkgname}"
+  git describe --long --tags --always | sed 's/^v//;s/\([^-]*-g\)/c\1/;s/-/./g'
+}
+
+build() {
+  cd "${pkgname}"
+
+  # cargokit (the code_forge Rust plugin) insists on a real rustup; makepkg's
+  # HOME points into srcdir, so the toolchain stays in the build sandbox.
+  rustup set profile minimal
+  rustup default stable
+
+  flutter pub get
+  flutter build linux --release
+}
+
+package() {
+  cd "${pkgname}"
+
+  # The Flutter bundle must keep its layout (exe + lib/ + data/ side by side).
+  install -d "${pkgdir}/opt"
+  cp -a build/linux/x64/release/bundle "${pkgdir}/opt/${_installdir}"
+
+  # Launcher symlink; RUNPATH $ORIGIN/lib resolves through symlinks.
+  install -d "${pkgdir}/usr/bin"
+  ln -s "/opt/${_installdir}/ProxyPin" "${pkgdir}/usr/bin/${_installdir}"
+
+  install -Dm644 assets/icon.png \
+    "${pkgdir}/usr/share/icons/hicolor/256x256/apps/${_installdir}.png"
+
+  cat > "${pkgdir}/usr/share/applications/${_installdir}.desktop" <<EOF
+[Desktop Entry]
+Name=ProxyPin (eMudhra)
+GenericName=HTTP(S) Proxy
+Comment=ProxyPin fork signing certificates with the eMudhra compromised intermediate CAs
+Exec=${_installdir}
+Icon=${_installdir}
+Terminal=false
+Type=Application
+Categories=Development;
+StartupWMClass=com.network.proxy.emudhra
+EOF
+
+  install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${_installdir}/LICENSE"
+}

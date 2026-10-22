@@ -1,0 +1,8 @@
+# makepkg build artifacts
+/src/
+/pkg/
+/proxypin-emudhra/
+/proxypin-emudhra-git/
+*.pkg.tar.*
+*.deb
+.SRCINFO.pax
