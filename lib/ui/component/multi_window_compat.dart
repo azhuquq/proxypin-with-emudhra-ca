@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/services.dart';
@@ -39,11 +40,77 @@ class DesktopMultiWindow {
     if (mainWindowId != null && mainWindowId.isNotEmpty) {
       _mainWindowId = mainWindowId;
     }
+    if (Platform.isLinux) {
+      // 仅子窗口引擎会走到这里（main.dart 的 multi_window 分支）。
+      _armLinuxHideOnClose();
+    }
   }
 
   static Future<WindowController> createWindow(String arguments) async {
     final configurationArguments = _withMainWindowId(arguments);
+    if (Platform.isLinux) {
+      final reused = await _linuxReuseHiddenWindow(configurationArguments);
+      if (reused != null) {
+        return reused;
+      }
+    }
     return WindowController.create(WindowConfiguration(arguments: configurationArguments));
+  }
+
+  /// Workaround for an upstream Flutter Linux engine bug (flutter/flutter#194399,
+  /// fix pending in flutter/flutter#194520): disposing one engine's
+  /// [FlOpenGLManager] calls eglTerminate() on the process-wide EGLDisplay,
+  /// which breaks rendering for every remaining window/engine. Closing a
+  /// sub-window therefore used to take the whole app down, so on Linux the
+  /// close is replaced by a hide and the window (its engine) stays alive.
+  static Future<WindowController?> _linuxReuseHiddenWindow(String configurationArguments) async {
+    final target = _canonicalJson(configurationArguments);
+    if (target == null) {
+      return null;
+    }
+    for (final window in await WindowController.getAll()) {
+      final existing = _canonicalJson(window.arguments);
+      if (existing != null && existing.isNotEmpty && existing == target) {
+        // 窗口仍然存在（此前只是被隐藏），直接重新显示。
+        await WindowController.fromWindowId(window.windowId)._invokeWindowMethod('window_show');
+        return window;
+      }
+    }
+    return null;
+  }
+
+  static String? _canonicalJson(String value) {
+    try {
+      return jsonEncode(_sortJson(jsonDecode(value)));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Object? _sortJson(Object? value) {
+    if (value is Map) {
+      final sorted = <String, Object?>{};
+      for (final key in value.keys.map((e) => e.toString()).toList()..sort()) {
+        sorted[key] = _sortJson(value[key]);
+      }
+      return sorted;
+    }
+    if (value is List) {
+      return value.map(_sortJson).toList();
+    }
+    return value;
+  }
+
+  static bool _linuxCloseToHideArmed = false;
+
+  static Future<void> _armLinuxHideOnClose() async {
+    if (_linuxCloseToHideArmed) {
+      return;
+    }
+    _linuxCloseToHideArmed = true;
+    await windowManager.ensureInitialized();
+    windowManager.addListener(_linuxHideOnCloseListener);
+    await windowManager.setPreventClose(true);
   }
 
   static Future<T?> invokeMainWindowMethod<T>(String method, [dynamic arguments]) async {
@@ -132,6 +199,18 @@ class DesktopMultiWindow {
 
       return _handleMethodCall(call);
     });
+  }
+}
+
+final _linuxHideOnCloseListener = _LinuxHideOnCloseListener();
+
+class _LinuxHideOnCloseListener extends WindowListener {
+  @override
+  void onWindowClose() async {
+    // Hide instead of destroy: see DesktopMultiWindow._armLinuxHideOnClose().
+    // This also serves the close buttons that call windowManager.close(),
+    // since gtk_window_close() re-emits the blocked delete-event.
+    await windowManager.hide();
   }
 }
 

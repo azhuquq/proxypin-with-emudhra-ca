@@ -290,7 +290,13 @@ class DesktopUpdateService {
     } catch (_) {}
     try {
       await windowManager.setPreventClose(false);
-      await windowManager.destroy();
+      if (Platform.isLinux) {
+        // Same upstream eglTerminate bug as in launch.dart's appExit: skip
+        // the hard destroy and let the process exit handle teardown.
+        await windowManager.close();
+      } else {
+        await windowManager.destroy();
+      }
     } catch (_) {}
     exit(0);
   }

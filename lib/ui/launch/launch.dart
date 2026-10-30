@@ -163,6 +163,14 @@ class _SocketLaunchState extends State<SocketLaunch> with WindowListener, Widget
     started = false;
     if (Platforms.isDesktop()) {
       await DesktopTrayManager.instance.exitApp();
+      if (Platform.isLinux) {
+        // Upstream Flutter Linux engine bug (flutter/flutter#194399, fix
+        // pending in flutter/flutter#194520): disposing an engine calls
+        // eglTerminate() on the process-wide EGLDisplay and corrupts the
+        // remaining (hidden, see multi_window_compat) windows. Exit right
+        // away instead of tearing the GTK window down.
+        exit(0);
+      }
       windowManager.setPreventClose(false);
       await windowManager.destroy();
     }
