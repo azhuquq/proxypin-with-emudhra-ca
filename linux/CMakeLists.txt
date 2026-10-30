@@ -1,6 +1,6 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.10)
-project(runner LANGUAGES CXX)
+project(runner LANGUAGES C CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
@@ -68,12 +68,30 @@ add_definitions(-DAPPLICATION_ID="${APPLICATION_ID}")
 add_executable(${BINARY_NAME}
   "main.cc"
   "my_application.cc"
+  "dart_api_dl/dart_api_dl.c"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
+)
+
+# Vendored third-party Dart SDK shim; keep compiler quiet on it.
+set_source_files_properties("dart_api_dl/dart_api_dl.c" PROPERTIES
+  COMPILE_OPTIONS "-w"
 )
 
 # Apply the standard set of build settings. This can be removed for applications
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})
+
+# The code_forge plugin's flutter_rust_bridge binding links against the Dart
+# Dynamic API (Dart_CurrentIsolate_DL, Dart_InitializeApiDL, ...). Whether
+# libcode_forge.so ends up defining those symbols itself depends on the cargo
+# environment of the build machine, and the Linux engine exports none of them,
+# so the plugin can fail to load at dlopen ("undefined symbol:
+# Dart_CurrentIsolate_DL") and every editor renders blank. Compile the shim
+# into the executable (above) and keep it exported so the plugin always
+# resolves. See linux/dart_api_dl/README.md.
+target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/dart_api_dl")
+target_link_options(${BINARY_NAME} PRIVATE
+  "-Wl,--dynamic-list,${CMAKE_CURRENT_SOURCE_DIR}/dart_api_dl/dart_dynamic_api.sym")
 
 # Add dependency libraries. Add any application-specific dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter)

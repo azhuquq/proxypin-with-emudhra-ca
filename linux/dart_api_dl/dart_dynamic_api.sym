@@ -1,0 +1,6 @@
+# Symbols the runner must export for dlopened plugin libraries built
+# against the Dart Dynamic API (e.g. code_forge's libcode_forge.so).
+# Passed to ld via -Wl,--dynamic-list; see linux/dart_api_dl/README.md.
+{
+  Dart_*;
+};
